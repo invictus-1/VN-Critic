@@ -2,10 +2,10 @@
 
 VN Critic is a modern, feature-rich desktop application designed for Visual Novel enthusiasts who want to rate, track, and analyze their reading history with precision.
 
-Unlike simple 1-10 rating sy
+Unlike simple 1-10 rating systems, VN Critic allows you to break down every aspect of a Visual Novel—from plot pacing to character art—and generates a weighted final score based on your personal preferences. It features seamless integration with VNDB (Visual Novel Database) and optional AI-powered analysis to help you understand your own rating biases.
+
 <img width="850" height="811" alt="Screenshot_2" src="https://github.com/user-attachments/assets/f56cd42c-bf3f-4563-a586-9f63100f6eba" />
 <img width="853" height="809" alt="Screenshot_3" src="https://github.com/user-attachments/assets/e67ba1c8-02e2-46a5-a758-519c48f45750" />
-stems, VN Critic allows you to break down every aspect of a Visual Novel—from plot pacing to character art—and generates a weighted final score based on your personal preferences. It features seamless integration with VNDB (Visual Novel Database) and optional AI-powered analysis to help you understand your own rating biases.
 
 ✨ Features
 
