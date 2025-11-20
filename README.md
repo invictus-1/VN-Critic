@@ -44,7 +44,8 @@ JSON Import/Export: Easily backup your library or move it to another computer.
 
 🚀 Installation
 
-Method 1: Download Zip click Exe
+Method 1: Download Zip click EXE
+Method 2: Download source and do npm install then npm run build-exe to get your own exe file.
 
 
 ⚙️ Configuration
