@@ -1,0 +1,16 @@
+{
+  "name": "vn-critic",
+  "version": "1.0.0",
+  "description": "A Visual Novel Rating App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-exe": "electron-packager . \"VN Critic\" --platform=win32 --arch=x64 --out=dist --overwrite"
+  },
+  "author": "You",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}

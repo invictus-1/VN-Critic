@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VN Critic</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react": "https://esm.sh/lucide-react@0.263.1"
+        }
+    }
+    </script>
+
+    <style>
+        /* Base background to prevent white flash before load */
+        body { background-color: #050505; color: white; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            BrainCircuit, Library, Plus, Info, Download, Upload, Settings, 
+            Image as ImageIcon, Trash2, ChevronRight, ChevronLeft, ChevronDown, 
+            Star, Globe, Search, Tag, X, Bot, User, Save, Loader2, RefreshCw, 
+            CheckCircle2, LogOut, AlertTriangle, ToggleLeft, ToggleRight, ExternalLink, Key,
+            ArrowUpDown, Calendar, SortAsc, SortDesc, Filter, Lock, Terminal, Bug
+        } from 'lucide-react';
+
+        // --- STYLES ---
+        const customStyles = `
+            /* Custom Scrollbar */
+            ::-webkit-scrollbar { width: 8px; }
+            ::-webkit-scrollbar-track { background: #0f172a; }
+            ::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 4px; }
+
+            /* Glassmorphism Utilities */
+            .glass {
+                background: rgba(15, 23, 42, 0.6);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+            }
+            .glass-panel {
+                background: rgba(30, 41, 59, 0.4);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                backdrop-filter: blur(8px);
+            }
+            
+            /* Range Slider Styling */
+            input[type=range] {
+                -webkit-appearance: none;
+                width: 100%;
+                background: transparent;
+            }
+            input[type=range]::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                height: 16px;
+                width: 16px;
+                border-radius: 50%;
+                background: #3b82f6;
+                margin-top: -6px;
+                box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+                cursor: pointer;
+                transition: transform 0.1s;
+            }
+            input[type=range]::-webkit-slider-thumb:hover {
+                transform: scale(1.2);
+            }
+            input[type=range]::-webkit-slider-runnable-track {
+                width: 100%;
+                height: 4px;
+                background: #1e293b;
+                border-radius: 2px;
+            }
+            
+            .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+            @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+            .spin { animation: spin 1s linear infinite; }
+            @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+            /* Tooltip */
+            .tooltip-container { position: relative; display: inline-block; }
+            .tooltip-text {
+                visibility: hidden; width: 200px; background-color: #1e293b; color: #fff; text-align: center;
+                border-radius: 6px; padding: 8px; position: absolute; z-index: 100; bottom: 125%; left: 50%;
+                margin-left: -100px; opacity: 0; transition: opacity 0.3s; font-size: 0.75rem;
+                border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            }
+            .tooltip-container:hover .tooltip-text { visibility: visible; opacity: 1; }
+            
+            /* Toast Animation */
+            .toast-enter { animation: slideIn 0.3s ease-out forwards; }
+            @keyframes slideIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+        `;
+
+        // --- LOGIC HELPERS ---
+        const defaultWeights = {
+            Story: 1.0, Characters: 1.0, Visuals: 1.0, Audio: 1.0, World: 1.0, Impact: 1.0, Favorites: 0.5
+        };
+
+        const calculateScores = (inputs) => {
+            const storyAvg = (inputs.Plot + inputs.Pacing + inputs.RoutePacing) / 3;
+            const visualsAvg = (inputs.CharacterArt + inputs.BGArt + inputs.CGs + inputs.ArtStyle) / 4;
+            const impactAvg = (inputs.ChangedMe + inputs.EmotionalImpact) / 2;
+            const worldAvg = (inputs.World + inputs.WorldBuilding + inputs.Replayability) / 3;
+            const audioAvg = inputs.Soundtrack;
+            const charsAvg = (inputs.CharactersOverall + inputs.Protagonist) / 2;
+            
+            const fav1 = inputs.FavChar1Rating !== undefined ? inputs.FavChar1Rating : 5.0;
+            const fav2 = inputs.FavChar2Rating !== undefined ? inputs.FavChar2Rating : 5.0;
+            const fav3 = inputs.FavChar3Rating !== undefined ? inputs.FavChar3Rating : 5.0;
+            const favoritesAvg = (fav1 + fav2 + fav3) / 3;
+
+            const w = inputs.weights || defaultWeights;
+            const weightedSum = (storyAvg * w.Story) + (charsAvg * w.Characters) + (visualsAvg * w.Visuals) + (audioAvg * w.Audio) + (worldAvg * w.World) + (impactAvg * w.Impact) + (favoritesAvg * w.Favorites) + (inputs.OverallEnjoyment * 1.0);
+            const totalWeight = w.Story + w.Characters + w.Visuals + w.Audio + w.World + w.Impact + w.Favorites + 1.0;
+            const final = totalWeight > 0 ? weightedSum / totalWeight : 0;
+            
+            return { story: storyAvg, visuals: visualsAvg, impact: impactAvg, world: worldAvg, final };
+        };
+
+        // --- ROUNDING LOGIC HELPER ---
+        const getVndbVote = (rawScore) => {
+            const clamped = Math.min(10, Math.max(1, rawScore));
+            const voteInt = Math.round(clamped * 10);
+            return voteInt;
+        };
+
+        const defaultStats = {
+            Plot: 5.0, Pacing: 5.0, RoutePacing: 5.0,
+            Protagonist: 5.0, CharactersOverall: 5.0,
+            FavChar1: "", FavChar1Rating: 5.0,
+            FavChar2: "", FavChar2Rating: 5.0,
+            FavChar3: "", FavChar3Rating: 5.0,
+            CharacterArt: 5.0, BGArt: 5.0, CGs: 5.0, ArtStyle: 5.0,
+            Soundtrack: 5.0, ChangedMe: 0.0, EmotionalImpact: 5.0, Replayability: 0.0,
+            World: 5.0, WorldBuilding: 5.0, OverallEnjoyment: 5.0,
+            tags_content: "", tags_tech: "", tags_sexual: "",
+            weights: { ...defaultWeights }
+        };
+
+        // --- SUB-COMPONENTS ---
+        const Toast = ({ message, type, onClose }) => (
+            <div className={`toast-enter fixed top-5 right-5 z-[100] flex items-center gap-3 px-4 py-3 rounded-lg shadow-xl border ${type === 'error' ? 'bg-red-900/95 border-red-500/50 text-red-100' : 'bg-blue-900/95 border-blue-500/50 text-blue-100'}`}>
+                {type === 'error' ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+                <span className="text-sm font-medium">{message}</span>
+                <button onClick={onClose} className="hover:opacity-75"><X size={16} /></button>
+            </div>
+        );
+
+        const RadarChart = ({ stats, results }) => {
+            const size = 300, center = size/2, radius = 100;
+            const axes = [
+                { label: "Story", value: results.story },
+                { label: "Chars", value: (stats.CharactersOverall + stats.Protagonist)/2 },
+                { label: "Visuals", value: results.visuals },
+                { label: "Audio", value: stats.Soundtrack },
+                { label: "World", value: results.world },
+                { label: "Enjoyment", value: stats.OverallEnjoyment }
+            ];
+            const angleSlice = (Math.PI * 2) / axes.length;
+            const getCoords = (v, i) => ({
+                x: center + (v/10)*radius * Math.cos(i*angleSlice - Math.PI/2),
+                y: center + (v/10)*radius * Math.sin(i*angleSlice - Math.PI/2)
+            });
+            const points = axes.map((axis, i) => { const {x,y} = getCoords(axis.value, i); return `${x},${y}`; }).join(" ");
+            return (
+                <div className="flex flex-col items-center justify-center p-4 glass rounded-2xl relative">
+                    <h3 className="text-blue-400 font-bold mb-2 tracking-wider uppercase text-sm">Stat Matrix</h3>
+                    <svg width={size} height={size} className="filter drop-shadow-lg">
+                        {[2,4,6,8,10].map(l => <circle key={l} cx={center} cy={center} r={(l/10)*radius} fill="none" stroke="#334155" strokeDasharray="4 4"/>)}
+                        {axes.map((a,i) => { const {x,y} = getCoords(10,i); return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="#334155"/>; })}
+                        <polygon points={points} fill="rgba(59, 130, 246, 0.5)" stroke="#60a5fa" strokeWidth="2"/>
+                        {axes.map((a,i) => { const {x,y} = getCoords(11.5,i); return <text key={i} x={x} y={y} fill="#94a3b8" fontSize="10" textAnchor="middle" dominantBaseline="middle">{a.label}</text>; })}
+                    </svg>
+                    <div className="absolute bottom-4 right-4 text-4xl font-bold text-white drop-shadow-blue">{results.final.toFixed(2)}</div>
+                </div>
+            );
+        };
+
+        const StatSlider = ({ label, value, onChange, step = 0.1 }) => (
+            <div className="mb-4">
+                <div className="flex justify-between text-xs mb-1 text-slate-400 uppercase tracking-widest">
+                    <span>{label}</span><span className="text-blue-400 font-mono">{Number(value).toFixed(1)}</span>
+                </div>
+                <input type="range" min="0" max="10" step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} />
+            </div>
+        );
+
+        const SectionHeader = ({ title, colorClass, weightKey, weights, onWeightChange, icon }) => {
+            const [isOpen, setIsOpen] = useState(false);
+            const currentWeight = weights ? weights[weightKey] : 1.0;
+            return (
+                <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className={`${colorClass} font-bold uppercase tracking-widest text-sm flex items-center gap-2`}>
+                            {icon} {title}
+                        </h3>
+                        <button onClick={() => setIsOpen(!isOpen)} className={`p-1 rounded hover:bg-white/10 transition ${isOpen?'text-blue-400':'text-slate-500'}`} title="Adjust Weight">
+                            <Settings size={16} />
+                        </button>
+                    </div>
+                    {isOpen && (
+                        <div className="bg-[#0a0a0f] p-3 rounded-lg border border-white/10 mb-4 animate-fade-in">
+                            <div className="flex justify-between text-[10px] text-slate-400 mb-1"><span>SCORE MULTIPLIER</span><span className="text-blue-400 font-mono">{currentWeight.toFixed(1)}x</span></div>
+                            <input type="range" min="0.1" max="5.0" step="0.1" value={currentWeight} onChange={(e) => onWeightChange(weightKey, parseFloat(e.target.value))} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer"/>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const TagInput = ({ value, onChange, placeholder }) => {
+            const [input, setInput] = useState("");
+            const tags = value ? value.split(',').map(t=>t.trim()).filter(t=>t) : [];
+            const add = (e) => { if(e.key==='Enter' && input.trim()){ e.preventDefault(); onChange([...tags, input.trim()].join(', ')); setInput(""); }};
+            const remove = (idx) => { onChange(tags.filter((_,i)=>i!==idx).join(', ')); };
+            return (
+                <div className="flex flex-wrap gap-2 p-2 bg-[#050505] border border-slate-700 rounded min-h-[60px]">
+                    {tags.map((t,i) => (
+                        <span key={i} className="bg-blue-900/50 border border-blue-500/30 text-blue-200 text-xs px-2 py-1 rounded-full flex items-center gap-1 animate-fade-in">
+                            {t} <button onClick={()=>remove(i)} className="hover:text-white text-blue-400"><X size={12}/></button>
+                        </span>
+                    ))}
+                    <input type="text" className="bg-transparent text-sm text-white outline-none flex-1 min-w-[120px] h-7" placeholder={tags.length===0?placeholder:""} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={add} />
+                </div>
+            );
+        };
+
+        const TagSection = ({ title, value, onChange }) => {
+            const [open, setOpen] = useState(false);
+            return (
+                <div className="border border-slate-800 rounded bg-[#0f1219] overflow-hidden">
+                    <button onClick={()=>setOpen(!open)} className="w-full flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 transition text-xs font-bold uppercase tracking-wider text-slate-400">
+                        <span className="flex items-center gap-2"><Tag size={12} /> {title}</span>
+                        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    </button>
+                    {open && <div className="p-3 animate-fade-in"><TagInput value={value} onChange={onChange} placeholder="Type & Enter..." /></div>}
+                </div>
+            );
+        };
+
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-[#0f1219] border border-white/10 rounded-xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+                        <div className="flex justify-between items-center p-4 border-b border-white/10 bg-white/5 flex-shrink-0">
+                            <h3 className="font-bold text-white">{title}</h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={20}/></button>
+                        </div>
+                        <div className="p-4 overflow-y-auto flex-1">{children}</div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- MAIN APP ---
+        function App() {
+            const [view, setView] = useState('library'); 
+            const [library, setLibrary] = useState([]);
+            const [sortConfig, setSortConfig] = useState({ key: 'id', direction: 'desc' });
+            const [searchQuery, setSearchQuery] = useState("");
+            
+            const [currentVN, setCurrentVN] = useState({ id: null, vndbId: null, Title: "", CoverUrl: "", Tags: "", ...defaultStats });
+            const [apiKey, setApiKey] = useState("");
+            const [vndbToken, setVndbToken] = useState("");
+            const [vndbUser, setVndbUser] = useState(null);
+            const [showSettings, setShowSettings] = useState(false);
+            const [settingsTab, setSettingsTab] = useState('account'); // 'account', 'debug'
+            const [autoSync, setAutoSync] = useState(false); 
+            const [aiLoading, setAiLoading] = useState(false);
+            const [aiResponse, setAiResponse] = useState("");
+            const [isSearchingVNDB, setIsSearchingVNDB] = useState(false);
+            const [vndbResults, setVndbResults] = useState([]);
+            const [showSearchModal, setShowSearchModal] = useState(false);
+            const [isSyncing, setIsSyncing] = useState(false);
+            const [isImporting, setIsImporting] = useState(false);
+            const [isLinking, setIsLinking] = useState(false); // Added State for Auto Link
+            const [debugLog, setDebugLog] = useState([]);
+
+            const [toast, setToast] = useState(null);
+            const [deleteTarget, setDeleteTarget] = useState(null);
+
+            // Initialize Load Data
+            useEffect(() => {
+                try {
+                    const savedLib = localStorage.getItem('vn_library'); if(savedLib) setLibrary(JSON.parse(savedLib));
+                    const savedKey = localStorage.getItem('openai_key'); if(savedKey) setApiKey(savedKey);
+                    const savedVndb = localStorage.getItem('vndb_token'); if(savedVndb) setVndbToken(savedVndb);
+                    const savedUser = localStorage.getItem('vndb_user'); if(savedUser) setVndbUser(JSON.parse(savedUser));
+                    const savedAuto = localStorage.getItem('vndb_autosync'); if(savedAuto) setAutoSync(savedAuto === 'true');
+                } catch (e) {
+                    showToast("Failed to load local data", "error");
+                }
+            }, []);
+
+            useEffect(() => {
+                if (toast) {
+                    const timer = setTimeout(() => setToast(null), 4000);
+                    return () => clearTimeout(timer);
+                }
+            }, [toast]);
+
+            const showToast = (message, type = "success") => {
+                setToast({ message, type });
+            };
+
+            const addToLog = (msg) => {
+                setDebugLog(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 50));
+            };
+
+            const results = useMemo(() => calculateScores(currentVN), [currentVN]);
+
+            // -- LIBRARY SORTING & SEARCH LOGIC --
+            const sortedLibrary = useMemo(() => {
+                const uniqueMap = new Map(library.map(item => [item.id, item]));
+                let items = Array.from(uniqueMap.values());
+                
+                if (searchQuery) {
+                    const lowerQ = searchQuery.toLowerCase();
+                    items = items.filter(vn => 
+                        (vn.Title && vn.Title.toLowerCase().includes(lowerQ)) ||
+                        (vn.tags_content && vn.tags_content.toLowerCase().includes(lowerQ))
+                    );
+                }
+
+                if (sortConfig.key) {
+                    items.sort((a, b) => {
+                        let aVal = a[sortConfig.key];
+                        let bVal = b[sortConfig.key];
+                        
+                        if (sortConfig.key === 'final') {
+                            aVal = a.final || 0;
+                            bVal = b.final || 0;
+                        } else if (sortConfig.key === 'Title') {
+                            aVal = (aVal || "").toLowerCase();
+                            bVal = (bVal || "").toLowerCase();
+                        }
+
+                        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+                        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+                        return 0;
+                    });
+                }
+                return items;
+            }, [library, sortConfig, searchQuery]);
+
+            const requestSort = (key) => {
+                let direction = 'desc';
+                if (sortConfig.key === key && sortConfig.direction === 'desc') {
+                    direction = 'asc';
+                }
+                setSortConfig({ key, direction });
+            };
+
+            // -- VNDB SCORE SYNC --
+            const performSync = async (vnData, scoreData) => {
+                addToLog("--- Starting Sync Process ---"); // LOG START
+                
+                const token = vndbToken.trim();
+                
+                // 1. VALIDATION LOGGING
+                if(!token) {
+                    addToLog("Error: Missing API Token");
+                    throw new Error("Missing API Token in Settings");
+                }
+                if(!vnData.vndbId) {
+                    addToLog("Error: No VNDB ID Linked to this entry");
+                    throw new Error("Visual Novel is not linked to a VNDB ID");
+                }
+                
+                const vote = getVndbVote(scoreData.final);
+                const url = `https://api.vndb.org/kana/ulist/${vnData.vndbId}`;
+                const payload = JSON.stringify({vote: vote});
+                
+                addToLog(`Target: ${vnData.Title} (${vnData.vndbId})`);
+                addToLog(`Sending Vote: ${vote} (from ${scoreData.final.toFixed(2)})`);
+
+                try {
+                    const res = await fetch(url, { 
+                        method: 'PATCH', 
+                        headers: {
+                            'Content-Type': 'application/json', 
+                            'Authorization': `token ${token}` 
+                        }, 
+                        body: payload 
+                    });
+                    
+                    if(!res.ok) {
+                        const errText = await res.text();
+                        addToLog(`API Error ${res.status}: ${errText}`);
+                        console.error("VNDB Sync Error Response:", errText);
+                        
+                        if (res.status === 401) throw new Error("Unauthorized (401). Check Token permissions.");
+                        if (res.status === 404) throw new Error("ID Not Found (404).");
+                        if (res.status === 429) throw new Error("Rate Limit (429). Wait a moment.");
+                        
+                        throw new Error(`VNDB Error (${res.status})`);
+                    }
+                    addToLog(`Success! Server responded 200 OK`);
+                    return vote;
+                } catch (error) {
+                    if (error.message.includes("Failed to fetch") || error.name === "TypeError") {
+                         addToLog(`Network Error: ${error.message}`);
+                         throw new Error("Network Error: CORS blocked. Need browser extension?");
+                    }
+                    addToLog(`Exception: ${error.message}`);
+                    throw error;
+                }
+            };
+
+            const syncScore = async () => {
+                setIsSyncing(true);
+                try {
+                    const vote = await performSync(currentVN, results);
+                    showToast(`Synced score ${vote/10} to VNDB!`);
+                } catch(e){showToast(e.message, "error");} 
+                finally { setIsSyncing(false); }
+            };
+
+            // -- AUTO LINKER ---
+            const autoLinkLibrary = async () => {
+                setIsLinking(true);
+                addToLog("--- Starting Auto-Link Process ---");
+                let updatedCount = 0;
+                const newLib = [...library]; // Create copy of library
+
+                try {
+                    // Loop through library
+                    for (let i = 0; i < newLib.length; i++) {
+                        const vn = newLib[i];
+
+                        // Skip if it already has an ID
+                        if (vn.vndbId) continue;
+
+                        if (!vn.Title) {
+                            addToLog(`Skipping entry #${i} (No Title)`);
+                            continue;
+                        }
+
+                        addToLog(`Searching ID for: "${vn.Title}"...`);
+
+                        // 1. Fetch from VNDB
+                        // We accept the first result as the correct one
+                        const res = await fetch('https://api.vndb.org/kana/vn', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                filters: ["search", "=", vn.Title],
+                                fields: "id, title"
+                            })
+                        });
+
+                        if (!res.ok) {
+                            addToLog(`API Error for "${vn.Title}": ${res.statusText}`);
+                            continue;
+                        }
+
+                        const data = await res.json();
+
+                        // 2. Apply ID if found
+                        if (data.results && data.results.length > 0) {
+                            const bestMatch = data.results[0];
+                            newLib[i].vndbId = bestMatch.id;
+                            updatedCount++;
+                            addToLog(`> MATCHED! Linked "${vn.Title}" to ID: ${bestMatch.id}`);
+                        } else {
+                            addToLog(`> No match found for "${vn.Title}"`);
+                        }
+
+                        // 3. Rate Limiting (Important!)
+                        // Pause for 500ms between requests to be nice to VNDB API
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+
+                    // 4. Save Updated Library
+                    if (updatedCount > 0) {
+                        setLibrary(newLib);
+                        localStorage.setItem('vn_library', JSON.stringify(newLib));
+                        showToast(`Success! Auto-linked ${updatedCount} VNs.`);
+                        addToLog(`Process Complete. Updated ${updatedCount} entries.`);
+                    } else {
+                        showToast("Process complete. No new links found.");
+                        addToLog("Process complete. No new links found.");
+                    }
+
+                } catch (e) {
+                    addToLog(`Critical Error: ${e.message}`);
+                    showToast("Auto-link failed, check logs", "error");
+                } finally {
+                    setIsLinking(false);
+                }
+            };
+
+            // -- ACTIONS --
+            const handleSave = async (shouldSync = false) => {
+                if (!currentVN.Title) return showToast("Title is required", "error");
+                let newLib = [...library];
+                const scores = calculateScores(currentVN);
+                const entry = { ...currentVN, ...scores, id: currentVN.id || Date.now() };
+                
+                if (currentVN.id) {
+                    const idx = newLib.findIndex(vn => vn.id === currentVN.id);
+                    if (idx > -1) newLib[idx] = entry;
+                } else { newLib.push(entry); }
+                
+                setLibrary(newLib); 
+                localStorage.setItem('vn_library', JSON.stringify(newLib)); 
+                
+                if(shouldSync) {
+                    setIsSyncing(true);
+                    try {
+                        await performSync(entry, scores);
+                        showToast("Saved locally & Synced to VNDB!");
+                        setView('library');
+                    } catch(e) {
+                        showToast(e.message, "error");
+                        // DO NOT navigate back on error, let user retry
+                    } finally {
+                        setIsSyncing(false);
+                    }
+                } else {
+                    showToast("Entry saved locally!");
+                    setView('library');
+                }
+            };
+
+            const requestDelete = (id) => {
+                setDeleteTarget(id);
+            };
+
+            const confirmDelete = () => {
+                if (!deleteTarget) return;
+                const newLib = library.filter(v => v.id !== deleteTarget);
+                setLibrary(newLib); 
+                localStorage.setItem('vn_library', JSON.stringify(newLib));
+                setDeleteTarget(null);
+                showToast("Entry deleted");
+            };
+
+            const handleNew = () => { setCurrentVN({ id: null, vndbId: null, Title: "", CoverUrl: "", Tags: "", ...defaultStats }); setAiResponse(""); setView('editor'); };
+            const handleEdit = (vn) => { setCurrentVN({...defaultStats, ...vn, weights: {...defaultWeights, ...(vn.weights||{})}}); setAiResponse(""); setView('editor'); };
+
+            const updateWeight = (key, val) => setCurrentVN(p => ({...p, weights: {...p.weights, [key]: val}}));
+            
+            const exportData = () => {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(library));
+                const a = document.createElement('a'); a.href = dataStr; a.download = "vn_database.json"; document.body.appendChild(a); a.click(); a.remove();
+                showToast("Library exported");
+            };
+            const importData = (e) => {
+                const f = e.target.files[0]; if(!f) return;
+                const r = new FileReader(); 
+                r.onload = (evt) => { 
+                    try { 
+                        setLibrary(JSON.parse(evt.target.result)); 
+                        localStorage.setItem('vn_library', evt.target.result); 
+                        showToast("Library imported!"); 
+                    } catch(err) { showToast("Invalid JSON file", "error"); } 
+                }; 
+                r.readAsText(f);
+            };
+
+            // -- VNDB API --
+            const searchVNDB = async (q) => {
+                if(!q) return showToast("Enter a title first", "error"); 
+                setIsSearchingVNDB(true); setShowSearchModal(true);
+                try {
+                    const res = await fetch('https://api.vndb.org/kana/vn', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ filters:["search","=",q], fields:"title, image.url, id, description, tags.name, tags.category" }) });
+                    const d = await res.json(); setVndbResults(d.results||[]);
+                } catch(e){ showToast("VNDB connection failed", "error"); } finally { setIsSearchingVNDB(false); }
+            };
+
+            const selectVNDB = (entry) => {
+                const content=[], tech=[], sexual=[];
+                if(entry.tags) entry.tags.forEach(t => { if(t.category==='cont') content.push(t.name); else if(t.category==='tech') tech.push(t.name); else if(t.category==='ero') sexual.push(t.name); else content.push(t.name); });
+                setCurrentVN({
+                    ...currentVN, Title: entry.title, vndbId: entry.id, CoverUrl: entry.image?entry.image.url:currentVN.CoverUrl,
+                    tags_content: content.join(', '), tags_tech: tech.join(', '), tags_sexual: sexual.join(', '), Tags: content.concat(tech).concat(sexual).join(', ')
+                }); setShowSearchModal(false);
+                showToast("Data applied from VNDB");
+            };
+
+            const checkVndb = async () => {
+                const token = vndbToken.trim();
+                if(!token) return showToast("Please enter a token", "error");
+                try {
+                    const res = await fetch('https://api.vndb.org/kana/authinfo', { headers:{'Authorization':`Token ${token}`} });
+                    if(res.ok) { 
+                        const d = await res.json(); 
+                        
+                        // PERMISSION CHECK
+                        if(!d.permissions || !d.permissions.includes('listwrite')) {
+                            showToast("Warning: Token missing 'listwrite' permission!", "error");
+                        } else {
+                            showToast(`Connected as ${d.username}`); 
+                        }
+
+                        setVndbUser(d); 
+                        localStorage.setItem('vndb_user',JSON.stringify(d)); 
+                        localStorage.setItem('vndb_token', token); 
+                    }
+                    else showToast("Invalid Token", "error");
+                } catch(e){ showToast(e.message, "error"); }
+            };
+
+            const importVndbLib = async () => {
+                const token = vndbToken.trim();
+                if(!vndbUser) return showToast("Verify Token first", "error"); 
+                setIsImporting(true);
+                try {
+                    // REQUESTING TAGS NOW
+                    const res = await fetch('https://api.vndb.org/kana/ulist', { 
+                        method:'POST', 
+                        headers:{'Content-Type':'application/json', 'Authorization':`Token ${token}`}, 
+                        body:JSON.stringify({ 
+                            user: vndbUser.id, 
+                            fields: "vote, vn.title, vn.image.url, vn.id, vn.tags.name, vn.tags.category", 
+                            filters: ["label", "=", 7], 
+                            results: 100 
+                        }) 
+                    });
+
+                    if (!res.ok) throw new Error(`VNDB Error: ${res.statusText}`);
+
+                    const d = await res.json();
+                    const newEntries = [];
+                    d.results.forEach(i => {
+                        if(!library.find(l=>l.vndbId===i.vn.id)) {
+                            const score = i.vote ? i.vote / 10 : 5.0;
+                            
+                            // PROCESS TAGS
+                            const content=[], tech=[], sexual=[];
+                            if(i.vn.tags) i.vn.tags.forEach(t => { 
+                                if(t.category==='cont') content.push(t.name); 
+                                else if(t.category==='tech') tech.push(t.name); 
+                                else if(t.category==='ero') sexual.push(t.name); 
+                                else content.push(t.name); 
+                            });
+
+                            const syncedStats = {
+                                ...defaultStats,
+                                Plot: score, Pacing: score, RoutePacing: score,
+                                Protagonist: score, CharactersOverall: score,
+                                FavChar1Rating: score, FavChar2Rating: score, FavChar3Rating: score,
+                                CharacterArt: score, BGArt: score, CGs: score, ArtStyle: score,
+                                Soundtrack: score, EmotionalImpact: score, ChangedMe: score, 
+                                Replayability: score, World: score, WorldBuilding: score, OverallEnjoyment: score,
+                                // ADD TAGS
+                                tags_content: content.join(', '), 
+                                tags_tech: tech.join(', '), 
+                                tags_sexual: sexual.join(', '), 
+                                Tags: content.concat(tech).concat(sexual).join(', ')
+                            };
+
+                            newEntries.push({ 
+                                ...syncedStats, 
+                                id: Date.now() + Math.random(), 
+                                vndbId: i.vn.id, 
+                                Title: i.vn.title, 
+                                CoverUrl: i.vn.image ? i.vn.image.url : "", 
+                                ...calculateScores(syncedStats) 
+                            });
+                        }
+                    });
+                    if(newEntries.length) { const upLib=[...library,...newEntries]; setLibrary(upLib); localStorage.setItem('vn_library',JSON.stringify(upLib)); showToast(`Imported ${newEntries.length} VNs with tags!`); }
+                    else showToast("No new VNs found to import");
+                } catch(e){showToast(e.message, "error");} finally { setIsImporting(false); }
+            };
+
+            // -- AI --
+            const triggerAI = async () => {
+                if(!apiKey) return showToast("Missing OpenAI Key", "error"); setAiLoading(true); localStorage.setItem('openai_key',apiKey);
+                const hist = library.slice(-5).map(v=>`${v.Title}: ${v.final.toFixed(2)}`).join('\n');
+                const p = `User rating '${currentVN.Title}': ${JSON.stringify(currentVN)}. History: ${hist}. Analyze bias briefly.`;
+                try {
+                    const r = await fetch('https://api.openai.com/v1/chat/completions', { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`}, body:JSON.stringify({model:"gpt-4o", messages:[{role:"system",content:p}]}) });
+                    const d = await r.json(); if(d.error) throw new Error(d.error.message); setAiResponse(d.choices[0].message.content);
+                } catch(e){showToast(e.message, "error");} finally { setAiLoading(false); }
+            };
+
+            // -- RENDER --
+            const renderSidebar = () => (
+                <div className="w-64 bg-[#0a0a0f] border-r border-white/5 p-6 flex flex-col h-screen fixed left-0 top-0 z-10">
+                    <h1 className="text-2xl font-bold text-blue-500 mb-8 flex items-center gap-2"><BrainCircuit size={24}/> VN Critic</h1>
+                    <nav className="space-y-2 flex-1">
+                        <button onClick={()=>setView('library')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${view==='library'?'bg-blue-600 text-white':'text-slate-400 hover:bg-white/5'}`}><Library size={16}/> Library</button>
+                        <button onClick={handleNew} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${view==='editor'?'bg-blue-600 text-white':'text-slate-400 hover:bg-white/5'}`}><Plus size={16}/> New Entry</button>
+                    </nav>
+                    <div className="mt-auto pt-6 border-t border-white/5 space-y-4">
+                         <div className="flex items-center justify-between text-xs text-slate-500 uppercase tracking-wider font-bold"><span>Data</span><div className="tooltip-container"><Info size={12} className="cursor-help"/><span className="tooltip-text">Export/Import refers to LOCAL backups.</span></div></div>
+                         <button onClick={exportData} className="w-full flex items-center gap-2 text-sm text-slate-300 hover:text-white"><Download size={16}/> Export JSON</button>
+                         <label className="w-full flex items-center gap-2 text-sm text-slate-300 hover:text-white cursor-pointer"><Upload size={16}/> Import JSON <input type="file" className="hidden" onChange={importData} accept=".json"/></label>
+                         <div className="pt-4 border-t border-white/5"><button onClick={()=>setShowSettings(true)} className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-white/5 text-slate-400 hover:text-white"><Settings size={16}/> Settings</button></div>
+                    </div>
+                </div>
+            );
+
+            const renderLibrary = () => (
+                <div className="p-10 pl-72">
+                    <header className="flex justify-between items-center mb-10">
+                        <div><h2 className="text-3xl font-bold text-white">Collection</h2><p className="text-slate-400">Total: {sortedLibrary.length} / {library.length}</p></div>
+                        <div className="flex gap-4 items-center">
+                            {/* SEARCH BAR */}
+                            <div className="relative group">
+                                <Search size={16} className="absolute left-3 top-3 text-slate-500 group-focus-within:text-blue-400 transition"/>
+                                <input 
+                                    type="text" 
+                                    placeholder="Search library..." 
+                                    value={searchQuery} 
+                                    onChange={(e)=>setSearchQuery(e.target.value)} 
+                                    className="bg-[#0a0a0f] border border-white/10 rounded-full pl-10 pr-4 py-2 text-sm text-white outline-none focus:border-blue-500 w-48 focus:w-64 transition-all"
+                                />
+                            </div>
+
+                            <div className="flex bg-[#0a0a0f] border border-white/10 rounded-lg p-1">
+                                <button onClick={()=>requestSort('Title')} className={`px-3 py-1 text-xs font-bold uppercase rounded ${sortConfig.key==='Title'?'bg-blue-600 text-white':'text-slate-400 hover:text-white'}`}>Title</button>
+                                <button onClick={()=>requestSort('final')} className={`px-3 py-1 text-xs font-bold uppercase rounded ${sortConfig.key==='final'?'bg-blue-600 text-white':'text-slate-400 hover:text-white'}`}>Rating</button>
+                                <button onClick={()=>requestSort('id')} className={`px-3 py-1 text-xs font-bold uppercase rounded ${sortConfig.key==='id'?'bg-blue-600 text-white':'text-slate-400 hover:text-white'}`}>Date</button>
+                                <div className="w-px bg-white/10 mx-1"></div>
+                                <div className="px-2 flex items-center text-slate-500">
+                                    {sortConfig.direction==='asc' ? <SortAsc size={14}/> : <SortDesc size={14}/>}
+                                </div>
+                            </div>
+
+                            <button onClick={handleNew} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-medium shadow-lg shadow-blue-600/20 transition">+ New</button>
+                        </div>
+                    </header>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                        {sortedLibrary.map(vn => (
+                            <div key={vn.id} className="group glass rounded-xl overflow-hidden hover:-translate-y-1 transition-all duration-300 relative flex flex-col">
+                                <div className="aspect-[2/3] bg-slate-800 relative overflow-hidden">
+                                    {vn.CoverUrl ? <img src={vn.CoverUrl} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition" onError={(e)=>e.target.src='https://placehold.co/400x600?text=No+Image'}/> : <div className="w-full h-full flex items-center justify-center text-slate-600"><ImageIcon size={48}/></div>}
+                                    <div className="absolute top-2 right-2 bg-black/60 backdrop-blur px-2 py-1 rounded text-xs font-bold text-blue-400 border border-blue-500/30">{vn.final?.toFixed(2)||0}</div>
+                                </div>
+                                <div className="p-4 flex flex-col flex-1">
+                                    <h3 className="font-bold text-lg truncate mb-1" title={vn.Title}>{vn.Title}</h3>
+                                    <div className="flex flex-wrap gap-2 mb-4">{vn.tags_content && vn.tags_content.split(',').slice(0,2).map((t,i)=><span key={i} className="text-[10px] bg-white/5 px-2 py-1 rounded text-slate-400 uppercase">{t.trim()}</span>)}</div>
+                                    
+                                    <div className="mt-auto pt-4 border-t border-white/5 flex justify-between items-center">
+                                        <button onClick={()=>requestDelete(vn.id)} className="text-slate-500 hover:text-red-400"><Trash2 size={16}/></button>
+                                        <button onClick={()=>handleEdit(vn)} className="text-blue-400 hover:text-white flex items-center gap-1 text-sm font-medium">Edit <ChevronRight size={16}/></button>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                        {sortedLibrary.length===0 && <div className="col-span-full text-center py-20 text-slate-600"><Library size={64} className="mx-auto mb-4 opacity-50"/><p>{library.length===0 ? "No VNs rated yet." : "No results found."}</p></div>}
+                    </div>
+                </div>
+            );
+
+            const renderEditor = () => (
+                <div className="flex h-screen">
+                    <div className="flex-1 overflow-y-auto pl-72 p-10 pr-96">
+                        <header className="flex items-center gap-4 mb-8">
+                            <button onClick={()=>setView('library')} className="bg-white/5 hover:bg-white/10 p-2 rounded-lg text-slate-400 transition"><ChevronLeft size={16}/></button>
+                            <h2 className="text-2xl font-bold">{currentVN.id?'Edit':'New'} Rating</h2>
+                        </header>
+                        <div className="grid gap-8">
+                            <section className="glass-panel p-6 rounded-xl">
+                                <div className="flex justify-between mb-4"><h3 className="text-blue-400 font-bold uppercase text-sm flex gap-2"><Star size={16}/> Meta</h3><div className="text-xs text-slate-500">{currentVN.vndbId?<span className="text-green-400 flex gap-1"><Globe size={12}/> Linked</span>:"Not Linked"}</div></div>
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div><label className="block text-xs text-slate-400 mb-1">Title</label><div className="flex gap-2"><input type="text" value={currentVN.Title} onChange={e=>setCurrentVN({...currentVN,Title:e.target.value})} className="w-full bg-[#0f1219] border border-slate-700 rounded p-2 text-white outline-none focus:border-blue-500" placeholder="Title..."/><button onClick={()=>searchVNDB(currentVN.Title)} className="bg-blue-600 px-3 rounded text-white hover:bg-blue-500"><Search size={16}/></button></div></div>
+                                    <div><label className="block text-xs text-slate-400 mb-1">Cover URL</label><input type="text" value={currentVN.CoverUrl} onChange={e=>setCurrentVN({...currentVN,CoverUrl:e.target.value})} className="w-full bg-[#0f1219] border border-slate-700 rounded p-2 text-white outline-none focus:border-blue-500" placeholder="https://..."/></div>
+                                    <div className="col-span-2 space-y-2 mt-2">
+                                        <label className="block text-xs text-slate-400 mb-1">Tags</label>
+                                        <TagSection title="Content" value={currentVN.tags_content} onChange={v=>setCurrentVN({...currentVN,tags_content:v})} />
+                                        <TagSection title="Technical" value={currentVN.tags_tech} onChange={v=>setCurrentVN({...currentVN,tags_tech:v})} />
+                                        <TagSection title="Sexual" value={currentVN.tags_sexual} onChange={v=>setCurrentVN({...currentVN,tags_sexual:v})} />
+                                    </div>
+                                </div>
+                            </section>
+
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                                <section className="glass-panel p-6 rounded-xl">
+                                    <SectionHeader title="Story" colorClass="text-purple-400" weightKey="Story" weights={currentVN.weights} onWeightChange={updateWeight} icon={<Bot size={16}/>}/>
+                                    <StatSlider label="Plot" value={currentVN.Plot} onChange={v=>setCurrentVN({...currentVN,Plot:v})}/>
+                                    <StatSlider label="Pacing" value={currentVN.Pacing} onChange={v=>setCurrentVN({...currentVN,Pacing:v})}/>
+                                    <StatSlider label="Route Pacing" value={currentVN.RoutePacing} onChange={v=>setCurrentVN({...currentVN,RoutePacing:v})}/>
+                                </section>
+                                <section className="glass-panel p-6 rounded-xl">
+                                    <SectionHeader title="Characters" colorClass="text-pink-400" weightKey="Characters" weights={currentVN.weights} onWeightChange={updateWeight} icon={<User size={16}/>}/>
+                                    <StatSlider label="Protagonist" value={currentVN.Protagonist} onChange={v=>setCurrentVN({...currentVN,Protagonist:v})}/>
+                                    <StatSlider label="Overall" value={currentVN.CharactersOverall} onChange={v=>setCurrentVN({...currentVN,CharactersOverall:v})}/>
+                                    <div className="mt-6 pt-4 border-t border-white/10">
+                                        <div className="flex justify-between mb-4"><h4 className="text-xs font-bold text-pink-300 uppercase">Favorites</h4><SectionHeader title="" colorClass="text-pink-300" weightKey="Favorites" weights={currentVN.weights} onWeightChange={updateWeight} icon={<Star size={16}/>}/></div>
+                                        {[1,2,3].map(n=>(<div key={n} className="flex gap-2 items-end"><div className="flex-1"><label className="text-[10px] text-slate-500 uppercase">Name</label><input type="text" className="w-full bg-transparent border-b border-slate-700 py-1 text-sm outline-none focus:border-pink-500" value={currentVN[`FavChar${n}`]} onChange={e=>setCurrentVN({...currentVN,[`FavChar${n}`]:e.target.value})}/></div><div className="w-16"><label className="text-[10px] text-slate-500 uppercase">Rating</label><input type="number" className="w-full bg-transparent border-b border-slate-700 py-1 text-center text-sm text-pink-400 outline-none" min="1" max="10" value={currentVN[`FavChar${n}Rating`]} onChange={e=>setCurrentVN({...currentVN,[`FavChar${n}Rating`]:parseFloat(e.target.value)})}/></div></div>))}
+                                    </div>
+                                </section>
+                                <section className="glass-panel p-6 rounded-xl">
+                                    <SectionHeader title="Visuals" colorClass="text-cyan-400" weightKey="Visuals" weights={currentVN.weights} onWeightChange={updateWeight} icon={<ImageIcon size={16}/>}/>
+                                    <StatSlider label="Char Art" value={currentVN.CharacterArt} onChange={v=>setCurrentVN({...currentVN,CharacterArt:v})}/>
+                                    <StatSlider label="Backgrounds" value={currentVN.BGArt} onChange={v=>setCurrentVN({...currentVN,BGArt:v})}/>
+                                    <StatSlider label="CGs" value={currentVN.CGs} onChange={v=>setCurrentVN({...currentVN,CGs:v})}/>
+                                    <StatSlider label="Style" value={currentVN.ArtStyle} onChange={v=>setCurrentVN({...currentVN,ArtStyle:v})}/>
+                                </section>
+                                <section className="glass-panel p-6 rounded-xl">
+                                    <SectionHeader title="Atmosphere" colorClass="text-green-400" weightKey="World" weights={currentVN.weights} onWeightChange={updateWeight} icon={<Globe size={16}/>}/>
+                                    <StatSlider label="OST" value={currentVN.Soundtrack} onChange={v=>setCurrentVN({...currentVN,Soundtrack:v})}/>
+                                    <StatSlider label="Building" value={currentVN.WorldBuilding} onChange={v=>setCurrentVN({...currentVN,WorldBuilding:v})}/>
+                                    <StatSlider label="Concept" value={currentVN.World} onChange={v=>setCurrentVN({...currentVN,World:v})}/>
+                                    <StatSlider label="Enjoyment" value={currentVN.OverallEnjoyment} onChange={v=>setCurrentVN({...currentVN,OverallEnjoyment:v})}/>
+                                </section>
+                                <section className="glass-panel p-6 rounded-xl col-span-full">
+                                    <SectionHeader title="Impact" colorClass="text-yellow-400" weightKey="Impact" weights={currentVN.weights} onWeightChange={updateWeight} icon={<Star size={16}/>}/>
+                                    <div className="grid grid-cols-2 gap-8">
+                                        <StatSlider label="Emotional" value={currentVN.EmotionalImpact} onChange={v=>setCurrentVN({...currentVN,EmotionalImpact:v})}/>
+                                        <StatSlider label="Changed Me?" value={currentVN.ChangedMe} onChange={v=>setCurrentVN({...currentVN,ChangedMe:v})}/>
+                                    </div>
+                                </section>
+                            </div>
+                            <div className="h-20"></div>
+                        </div>
+                    </div>
+                    
+                    <div className="w-96 bg-[#0a0a0f] border-l border-white/5 fixed right-0 top-0 h-screen p-6 overflow-y-auto z-10 flex flex-col">
+                        <div className="mb-8"><RadarChart stats={currentVN} results={results} /></div>
+                        <div className="space-y-4 mb-auto">
+                            <div className="glass p-4 rounded-lg text-sm space-y-2">
+                                <div className="flex justify-between"><span className="text-slate-400">Story</span><span className="font-mono text-blue-300">{results.story.toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span className="text-slate-400">Visual</span><span className="font-mono text-blue-300">{results.visuals.toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span className="text-slate-400">World</span><span className="font-mono text-blue-300">{results.world.toFixed(2)}</span></div>
+                            </div>
+                            <button onClick={triggerAI} disabled={aiLoading} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2">{aiLoading?'...':<><BrainCircuit size={16}/> AI Analysis</>}</button>
+                            {aiResponse && <div className="glass-panel p-4 rounded-lg border-l-2 border-purple-500 text-sm text-slate-300">{aiResponse}</div>}
+                            <div className="w-full aspect-[2/3] bg-slate-900 rounded-lg overflow-hidden border border-white/10 relative group">{currentVN.CoverUrl ? <img src={currentVN.CoverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center text-slate-600"><ImageIcon size={32}/><span className="text-xs mt-2 uppercase">No Cover</span></div>}</div>
+                        </div>
+                        
+                        <div className="mt-4">
+                            {/* SCORE PREVIEW FOR DEBUGGING */}
+                            <div className="mb-2 flex justify-center items-center gap-2 text-xs text-slate-500">
+                                <Terminal size={12}/>
+                                <span>Will sync as: <strong className="text-green-400">{(getVndbVote(results.final)/10).toFixed(1)}</strong></span>
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={()=>handleSave(true)} disabled={isSyncing} className="flex-1 bg-green-600 hover:bg-green-500 text-white py-3 rounded-lg font-bold flex flex-col items-center justify-center gap-1">
+                                    {isSyncing ? <Loader2 size={16} className="spin"/> : <RefreshCw size={16}/>}
+                                    <span className="text-xs">Sync & Save</span>
+                                </button>
+                                <button onClick={()=>handleSave(false)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-lg font-bold flex flex-col items-center justify-center gap-1">
+                                    <Save size={16}/>
+                                    <span className="text-xs">Save Local</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen text-slate-200 selection:bg-blue-500 selection:text-white"
+                     style={{
+                        fontFamily: "'Inter', sans-serif",
+                        backgroundColor: "#050505",
+                        backgroundImage: "radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), radial-gradient(at 50% 0%, hsla(225,39%,30%,1) 0, transparent 50%), radial-gradient(at 100% 0%, hsla(339,49%,30%,1) 0, transparent 50%)"
+                     }}>
+                    <style>{customStyles}</style>
+                    {renderSidebar()}
+                    {view==='library'?renderLibrary():renderEditor()}
+                    <Modal isOpen={showSettings} onClose={()=>setShowSettings(false)} title="Settings">
+                        <div className="flex border-b border-white/10 mb-4">
+                            <button onClick={()=>setSettingsTab('account')} className={`px-4 py-2 text-sm font-medium border-b-2 transition ${settingsTab==='account'?'border-blue-500 text-white':'border-transparent text-slate-400 hover:text-white'}`}>Account</button>
+                            <button onClick={()=>setSettingsTab('debug')} className={`px-4 py-2 text-sm font-medium border-b-2 transition flex items-center gap-2 ${settingsTab==='debug'?'border-purple-500 text-white':'border-transparent text-slate-400 hover:text-white'}`}><Bug size={14}/> Debug Log</button>
+                        </div>
+
+                        {settingsTab === 'account' && (
+                            <div className="space-y-6 animate-fade-in">
+                                <div>
+                                    <label className="block text-xs text-slate-400 mb-2 font-bold uppercase">VNDB Account Connection</label>
+                                    
+                                    {!vndbUser ? (
+                                        <div className="bg-blue-900/20 border border-blue-500/20 rounded p-3 mb-3">
+                                            <p className="text-xs text-slate-300 mb-2">VNDB uses API Tokens instead of passwords for security.</p>
+                                            <p className="text-xs text-blue-200 mb-3 flex items-center gap-2 font-medium">
+                                                <Info size={12}/> The token is found in your Profile &gt; Applications
+                                            </p>
+                                            <div className="flex gap-2">
+                                                <div className="relative flex-1">
+                                                    <Key size={14} className="absolute left-3 top-3 text-slate-500"/>
+                                                    <input type="password" placeholder="Paste your Token here" value={vndbToken} onChange={e=>setVndbToken(e.target.value)} className="w-full bg-[#050505] border border-slate-700 rounded pl-9 pr-3 py-2 text-sm text-white outline-none focus:border-blue-500"/>
+                                                </div>
+                                                <button onClick={checkVndb} className="bg-blue-600 hover:bg-blue-500 text-white px-4 rounded text-sm font-medium transition">Connect</button>
+                                            </div>
+                                            <p className="text-[10px] text-slate-500 mt-2"><strong className="text-red-400">IMPORTANT:</strong> Ensure the token has "listwrite" permissions.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            <div className="bg-green-500/10 border border-green-500/20 rounded p-3 flex justify-between items-center text-sm text-green-200">
+                                                <div className="flex gap-2 items-center"><CheckCircle2 size={16}/> Connected as: <strong>{vndbUser.username}</strong></div>
+                                                <button onClick={()=>{setVndbUser(null);localStorage.removeItem('vndb_user');setVndbToken("");}} className="text-red-400 hover:bg-red-950/30 p-2 rounded transition"><LogOut size={16}/></button>
+                                            </div>
+                                            <div className="flex gap-2 text-[10px]">
+                                                <div className={`px-2 py-1 rounded border ${vndbUser.permissions && vndbUser.permissions.includes('listwrite') ? 'bg-green-900/30 border-green-500/30 text-green-400' : 'bg-red-900/30 border-red-500/30 text-red-400'}`}>
+                                                    listwrite: {vndbUser.permissions && vndbUser.permissions.includes('listwrite') ? 'YES' : 'NO'}
+                                                </div>
+                                                <div className="px-2 py-1 rounded border bg-slate-800 border-slate-700 text-slate-400">
+                                                    {vndbUser.permissions ? vndbUser.permissions.filter(p=>p!=='listwrite').join(', ') : ''}
+                                                </div>
+                                            </div>
+                                            {vndbUser.permissions && !vndbUser.permissions.includes('listwrite') && (
+                                                <div className="bg-red-900/20 border border-red-500/30 rounded p-2 flex gap-2 text-red-200 text-xs items-center">
+                                                    <AlertTriangle size={14}/> Warning: Missing 'listwrite'. Update token above.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {/* LIBRARY TOOLS SECTION */}
+                                <div className="pt-4 border-t border-white/10">
+                                    <label className="block text-xs text-slate-400 mb-2 font-bold uppercase">Library Tools</label>
+                                    
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {/* IMPORT BUTTON */}
+                                        {vndbUser && (
+                                            <button onClick={importVndbLib} disabled={isImporting || isLinking} className="bg-blue-900/30 border border-blue-500/30 hover:bg-blue-900/50 text-blue-200 py-3 rounded flex flex-col items-center gap-1 text-xs transition">
+                                                {isImporting?<Loader2 size={16} className="spin"/>:<Download size={16}/>} 
+                                                <span>Import from VNDB</span>
+                                            </button>
+                                        )}
+                                        
+                                        {/* AUTO LINK BUTTON - NEW! */}
+                                        <button onClick={autoLinkLibrary} disabled={isImporting || isLinking} className="bg-purple-900/30 border border-purple-500/30 hover:bg-purple-900/50 text-purple-200 py-3 rounded flex flex-col items-center gap-1 text-xs transition">
+                                            {isLinking ? <Loader2 size={16} className="spin"/> : <ExternalLink size={16}/>}
+                                            <span>Auto-Link IDs</span>
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 mt-2">
+                                        <strong>Auto-Link:</strong> Searches VNDB for titles in your library that are missing IDs and links them automatically.
+                                    </p>
+                                </div>
+
+                                <div className="pt-4 border-t border-white/10"><label className="block text-xs text-slate-400 mb-2 font-bold uppercase">OpenAI Integration</label><input type="password" placeholder="API Key (sk-...)" value={apiKey} onChange={e=>setApiKey(e.target.value)} className="w-full bg-[#050505] border border-slate-700 rounded px-3 py-2 text-sm text-white outline-none focus:border-blue-500"/></div>
+                            </div>
+                        )}
+
+                        {settingsTab === 'debug' && (
+                            <div className="animate-fade-in h-96 flex flex-col">
+                                <div className="bg-black/50 border border-white/10 rounded p-2 font-mono text-[10px] text-slate-300 overflow-y-auto flex-1 whitespace-pre-wrap">
+                                    {debugLog.length === 0 ? "No logs yet." : debugLog.join('\n')}
+                                </div>
+                                <button onClick={()=>setDebugLog([])} className="mt-2 text-xs text-slate-500 hover:text-white self-end">Clear Logs</button>
+                            </div>
+                        )}
+                    </Modal>
+                    <Modal isOpen={showSearchModal} onClose={()=>setShowSearchModal(false)} title="Search VNDB">
+                        {isSearchingVNDB?<div className="flex justify-center py-8 text-blue-500"><Loader2 size={32} className="spin"/></div>:vndbResults.length===0?<div className="text-slate-500 text-center py-8">No results</div>:<div className="space-y-2">{vndbResults.map(vn=>(<button key={vn.id} onClick={()=>selectVNDB(vn)} className="w-full flex items-center gap-4 p-2 hover:bg-white/10 rounded-lg transition text-left group"><div className="w-12 h-12 bg-slate-800 rounded overflow-hidden flex-shrink-0">{vn.image?<img src={vn.image.url} className="w-full h-full object-cover"/>:<ImageIcon size={16}/>}</div><div><div className="font-bold text-slate-200 group-hover:text-white">{vn.title}</div><div className="text-xs text-slate-500">{vn.id}</div></div></button>))}</div>}
+                    </Modal>
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
