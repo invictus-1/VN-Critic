@@ -1,6 +1,6 @@
-🧠 VN Critic AI
+🧠 VN Critic 
 
-VN Critic AI is a modern, feature-rich desktop application designed for Visual Novel enthusiasts who want to rate, track, and analyze their reading history with precision.
+VN Critic is a modern, feature-rich desktop application designed for Visual Novel enthusiasts who want to rate, track, and analyze their reading history with precision.
 
 Unlike simple 1-10 rating systems, VN Critic allows you to break down every aspect of a Visual Novel—from plot pacing to character art—and generates a weighted final score based on your personal preferences. It features seamless integration with VNDB (Visual Novel Database) and optional AI-powered analysis to help you understand your own rating biases.
 
@@ -30,7 +30,7 @@ Sync: Push your calculated final score directly to your VNDB account with one cl
 
 Offline Caching: Cover images are cached locally, so your library looks great even without an internet connection.
 
-🤖 AI Analysis
+🤖 AI Analysis [WIP]
 
 Connect your OpenAI Compatible API Key to get an AI critic that reviews your current rating against your history.
 
@@ -67,7 +67,7 @@ Setting up AI Analysis (Optional)
 
 Get an API Key from an OpenAI compatible Platform.
 
-In VN Critic AI Settings, paste the key into the OpenAI field along with all the info for whatever model and platform you're using.
+In VN Critic Settings, paste the key into the OpenAI field along with all the info for whatever model and platform you're using.
 
 Note: Keys are stored in Local Storage and only sent directly to OpenAI endpoints.
 
