@@ -33,11 +33,14 @@ Sync: Push your calculated final score directly to your VNDB account with one cl
 
 Offline Caching: Cover images are cached locally, so your library looks great even without an internet connection.
 
-🤖 AI Analysis [WIP]
+🤖 AI Bias Checker & Critical Editor
+Don't let recency bias inflate your scores. The integrated AI Bias Checker acts as a critical editor, analyzing your current rating against your existing library to ensure consistency.
 
-Connect your OpenAI Compatible API Key to get an AI critic that reviews your current rating against your history.
+Comparative Analysis: The AI automatically pulls comparisons from your library (entries within a ±0.3 score range) to challenge your ratings. ("You rated this Story an 8.5, but your favorite VN 'Steins;Gate' only has an 8.0. Is this really better?")
 
-Detects recency bias or inconsistencies (e.g., "You rated this story lower than [X], despite giving it higher pacing scores. Why?").
+Interactive Draggable Chat: Instead of a static response, open a floating chat window to discuss and justify your scores. Move the window aside to tweak sliders in real-time—the AI context updates immediately as you adjust values.
+
+Provider Agnostic (BYO-LLM): Built on the Generic OpenAI standard. Connect to OpenAI, Google Gemini, DeepSeek, Groq, or even a local model via LocalLLaMA or Ollama.
 
 📂 Data Management
 
